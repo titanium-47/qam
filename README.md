@@ -18,9 +18,9 @@
     <img alt="teaser figure" src="./assets/title-light.png" width="57.5%">
   </picture>
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="./assets/bar-light.png">
-    <source media="(prefers-color-scheme: dark)" srcset="./assets/bar-dark.png">
-    <img alt="bar plot" src="./assets/bar-light.png" width="41.8%">
+    <source media="(prefers-color-scheme: light)" srcset="./assets/bar-light-updated-05-09.png">
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/bar-dark-updated-05-09.png">
+    <img alt="bar plot" src="./assets/bar-light-updated-05-09.png" width="41.8%">
   </picture>
 </p>
 
@@ -32,6 +32,8 @@ Installation: `pip install -r requirements.txt`
 ## Reproducing paper results
 
 We include the example command below for all three variants of our method on `cube-triple-task2`. We also release our experiment data at [exp_data/README.md](exp_data/README.md) and include some scripts for generating experiment commands in `experiments/*.py`. We hope this helps facilitate/speedup future research!
+
+*Update-05-09*: there was a bug in the QSM implementation. We have fixed the issue, re-run all the experiments affected, and updated the paper accordingly. Please see [exp_data/README.md](exp_data/README.md) for more details.
 
 ```bash
 # QAM_EDIT
