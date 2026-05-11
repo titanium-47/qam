@@ -98,20 +98,22 @@ class DCGQLAgent(flax.struct.PyTreeNode):
 
             eps_pred = self.network.select("actor")(observations, current_x, input_time)
 
-            x0_hat = 1 / jnp.sqrt(self.alpha_hats[t]) * (current_x - jnp.sqrt(1 - self.alpha_hats[t]) * eps_pred)
-            if self.config["clip_sampler_before"]:
+            if self.config["actor_loss_type"] == "dac":
+                x0_hat = 1 / jnp.sqrt(self.alpha_hats[t]) * (current_x - jnp.sqrt(1 - self.alpha_hats[t]) * eps_pred)
                 x0_hat = jnp.clip(x0_hat, -1, 1)
                 current_x = 1 / (1 - self.alpha_hats[t]) * (jnp.sqrt(self.alpha_hats[t - 1]) * (1 - self.alphas[t]) * x0_hat +
                                                     jnp.sqrt(self.alphas[t]) * (1 - self.alpha_hats[t - 1]) * current_x)
-            else:
-                current_x = x0_hat
+            elif self.config["actor_loss_type"] == "qsm":
+                # BUGFIX for QSM
+                current_x = (1 / jnp.sqrt(self.alphas[t])) * (current_x - \
+                    (1 - self.alphas[t]) / (jnp.sqrt(1 - self.alpha_hats[t])) * eps_pred)
             
             rng_, key_ = jax.random.split(rng_, 2)
             z = jax.random.normal(key_, shape=(batch_size,) + current_x.shape[1:])
             sigmas_t = jnp.sqrt((1 - self.alphas[t]))
             
             current_x = current_x + (t > 1) * (sigmas_t * z)
-            if self.config["clip_sampler_after"]:
+            if self.config["actor_loss_type"] == "qsm":
                 current_x = jnp.clip(current_x, -1., 1.)
             return (current_x, rng_), ()
 
@@ -288,7 +290,7 @@ def get_config():
             action_chunking=False,                                      # Use Q-chunking or just n-step return
             
             ## RL hyperparameters
-            num_qs=10,           # Critic ensemble size
+            num_qs=10,          # Critic ensemble size
             rho=0.5,            # Pessimistic backup
 
             discount=0.99,      # Discount factor.
@@ -301,9 +303,6 @@ def get_config():
             
             ## Main hyperparameter(s)
             actor_loss_type="qsm",      # Our QSM uses an additional BC loss. Our DAC follows the original implementation as it already has a BC loss.
-            clip_sampler_before=False,  # First map it to the noise-free space with one-step approximate,
-                                        #  clip it to [-1, 1], and then map it back before applying each diffusion step (used by DAC only)
-            clip_sampler_after=False,   # Clip the intermediate noisy action to [-1, 1] after each diffusion step (used by QSM only)
             inv_temp=1.0,               # Inverse temperature for qsm/dac loss.
             alpha=0.0,                  # Weight for BC loss (only used by QSM and not by DAC).
 
