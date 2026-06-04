@@ -223,9 +223,9 @@ def main(_):
         batch = train_dataset.sample_sequence(config['batch_size'], sequence_length=FLAGS.horizon_length, discount=discount)
 
         if config['agent_name'] == 'rebrac':
-            agent, offline_info = agent.update(batch, full_update=(i % config['actor_freq'] == 0))
+            agent, offline_info = agent.update(batch, full_update=(i % config['actor_freq'] == 0), online=False)
         else:
-            agent, offline_info = agent.update(batch)
+            agent, offline_info = agent.update(batch, online=False)
 
         if i % FLAGS.log_interval == 0:
             logger.log(offline_info, "offline_agent", step=log_step)
@@ -357,9 +357,9 @@ def main(_):
                     FLAGS.utd_ratio, config["batch_size"]) + x.shape[1:]), batch)
 
             if config['agent_name'] == 'rebrac':
-                agent, update_info["online_agent"] = agent.batch_update(batch, full_update=(i % config['actor_freq'] == 0))
+                agent, update_info["online_agent"] = agent.batch_update(batch, full_update=(i % config['actor_freq'] == 0), online=True)
             else:
-                agent, update_info["online_agent"] = agent.batch_update(batch)
+                agent, update_info["online_agent"] = agent.batch_update(batch, online=True)
             
         if i % FLAGS.log_interval == 0:
             for key, info in update_info.items():

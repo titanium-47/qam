@@ -11,8 +11,8 @@ from utils.networks import Value, LogParam, ActorVectorField, MLP, TanhNormal
 
 from functools import partial
 
-class DSRLAgent(flax.struct.PyTreeNode):
-    """DSRL agent - https://arxiv.org/abs/2506.15799"""
+class DSRLFrozenAgent(flax.struct.PyTreeNode):
+    """DSRL agent with frozen base actor policy during online training."""
 
     rng: Any
     network: Any
@@ -58,25 +58,28 @@ class DSRLAgent(flax.struct.PyTreeNode):
             'q_min': q.min(),
         }
 
-    def actor_loss(self, batch, grad_params, rng):
+    def actor_loss(self, batch, grad_params, rng, online=False):
         if self.config["action_chunking"]:
             batch_actions = jnp.reshape(batch["actions"], (batch["actions"].shape[0], -1))  # fold in horizon_length together with action_dim
         else:
             batch_actions = batch["actions"][..., 0, :] # take the first one
-        
+
         batch_size, action_dim = batch_actions.shape
 
-        # BC flow loss.
-        rng, x_rng, t_rng = jax.random.split(rng, 3)
+        if not online:
+            # BC flow loss (only during offline training).
+            rng, x_rng, t_rng = jax.random.split(rng, 3)
 
-        x_0 = jax.random.normal(x_rng, (batch_size, action_dim))
-        x_1 = batch_actions
-        t = jax.random.uniform(t_rng, (batch_size, 1))
-        x_t = (1 - t) * x_0 + t * x_1
-        vel = x_1 - x_0
+            x_0 = jax.random.normal(x_rng, (batch_size, action_dim))
+            x_1 = batch_actions
+            t = jax.random.uniform(t_rng, (batch_size, 1))
+            x_t = (1 - t) * x_0 + t * x_1
+            vel = x_1 - x_0
 
-        pred = self.network.select('actor_bc_flow')(batch['observations'], x_t, t, params=grad_params)
-        flow_loss = jnp.mean(jnp.square(pred - vel).mean(axis=-1) * batch["valid"][..., -1])
+            pred = self.network.select('actor_bc_flow')(batch['observations'], x_t, t, params=grad_params)
+            flow_loss = jnp.mean(jnp.square(pred - vel).mean(axis=-1) * batch["valid"][..., -1])
+        else:
+            flow_loss = 0.0
 
         # Actor loss.
         dist = self.network.select('actor')(batch['observations'], params=grad_params)
@@ -97,7 +100,7 @@ class DSRLAgent(flax.struct.PyTreeNode):
         total_loss = flow_loss + actor_loss + alpha_loss
 
         action_std = dist._distribution.stddev()
-        
+
         return total_loss, {
             'total_loss': total_loss,
             'flow_loss': flow_loss,
@@ -109,7 +112,7 @@ class DSRLAgent(flax.struct.PyTreeNode):
             'q': q.mean(),
         }
 
-    def total_loss(self, batch, grad_params, rng=None):
+    def total_loss(self, batch, grad_params, rng=None, online=False):
         info = {}
         rng = rng if rng is not None else self.rng
 
@@ -119,7 +122,7 @@ class DSRLAgent(flax.struct.PyTreeNode):
         for k, v in critic_info.items():
             info[f'critic/{k}'] = v
 
-        actor_loss, actor_info = self.actor_loss(batch, grad_params, actor_rng)
+        actor_loss, actor_info = self.actor_loss(batch, grad_params, actor_rng, online=online)
         for k, v in actor_info.items():
             info[f'actor/{k}'] = v
 
@@ -139,11 +142,22 @@ class DSRLAgent(flax.struct.PyTreeNode):
         new_rng, rng = jax.random.split(self.rng)
 
         def loss_fn(grad_params):
-            return self.total_loss(batch, grad_params, rng=rng)
+            return self.total_loss(batch, grad_params, rng=rng, online=online)
 
-        new_network, info = self.network.apply_loss_fn(loss_fn=loss_fn)
+        if online:
+            grads, info = jax.grad(loss_fn, has_aux=True)(self.network.params)
+            grads['modules_actor_bc_flow'] = jax.tree_util.tree_map(jnp.zeros_like, grads['modules_actor_bc_flow'])
+            new_network = self.network.apply_gradients(grads=grads)
+            info.update({
+                'grad/max': jnp.max(jnp.concatenate([jnp.reshape(x, -1) for x in jax.tree_util.tree_leaves(jax.tree_util.tree_map(jnp.max, grads))])),
+                'grad/min': jnp.min(jnp.concatenate([jnp.reshape(x, -1) for x in jax.tree_util.tree_leaves(jax.tree_util.tree_map(jnp.min, grads))])),
+                'grad/norm': jnp.linalg.norm(jnp.concatenate([jnp.reshape(x, -1) for x in jax.tree_util.tree_leaves(jax.tree_util.tree_map(jnp.linalg.norm, grads))]), ord=1),
+            })
+        else:
+            new_network, info = self.network.apply_loss_fn(loss_fn=loss_fn)
+            self.target_update(new_network, 'actor_bc_flow')
+
         self.target_update(new_network, 'critic')
-        self.target_update(new_network, 'actor_bc_flow')
 
         return self.replace(network=new_network, rng=new_rng), info
 
@@ -261,7 +275,7 @@ class DSRLAgent(flax.struct.PyTreeNode):
 def get_config():
     config = ml_collections.ConfigDict(
         dict(
-            agent_name='dsrl',  # Agent name.
+            agent_name='dsrl_frozen',  # Agent name.
             ob_dims=ml_collections.config_dict.placeholder(list),   # Observation dimensions (will be set automatically).
             action_dim=ml_collections.config_dict.placeholder(int), # Action dimension (will be set automatically).
             

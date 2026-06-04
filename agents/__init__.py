@@ -5,6 +5,7 @@ from agents.cgql import CGQLAgent
 from agents.qam import QAMAgent
 from agents.bam import BAMAgent
 from agents.dsrl import DSRLAgent
+from agents.dsrl_frozen import DSRLFrozenAgent
 from agents.dcgql import DCGQLAgent
 from agents.fedit import FEditAgent
 from agents.fawac import FAWACAgent
@@ -16,6 +17,7 @@ agents = dict(
     fql=FQLAgent,
     fbrac=FBRACAgent,
     dsrl=DSRLAgent,
+    dsrl_frozen=DSRLFrozenAgent,
     qam=QAMAgent,
     bam=BAMAgent,
     fedit=FEditAgent,

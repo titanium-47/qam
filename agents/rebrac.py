@@ -131,7 +131,7 @@ class ReBRACAgent(flax.struct.PyTreeNode):
         return self.replace(network=new_network, rng=new_rng), info
 
     @staticmethod
-    def _update(agent, batch, full_update=False):
+    def _update(agent, batch, full_update=False, online=False):
         new_rng, rng = jax.random.split(agent.rng)
 
         def loss_fn(grad_params):
@@ -143,13 +143,13 @@ class ReBRACAgent(flax.struct.PyTreeNode):
             agent.target_update(new_network, 'actor')
         return agent.replace(network=new_network, rng=new_rng), info
 
-    @partial(jax.jit, static_argnames="full_update")
-    def update(self, batch, full_update=False):
-        return self._update(self, batch, full_update=full_update)
-    
-    @partial(jax.jit, static_argnames="full_update")
-    def batch_update(self, batch, full_update=False):
-        agent, infos = jax.lax.scan(partial(self._update, full_update=full_update), self, batch)
+    @partial(jax.jit, static_argnames=("full_update", "online"))
+    def update(self, batch, full_update=False, online=False):
+        return self._update(self, batch, full_update=full_update, online=online)
+
+    @partial(jax.jit, static_argnames=("full_update", "online"))
+    def batch_update(self, batch, full_update=False, online=False):
+        agent, infos = jax.lax.scan(partial(self._update, full_update=full_update, online=online), self, batch)
         return agent, jax.tree_util.tree_map(lambda x: x.mean(), infos)
 
     @jax.jit

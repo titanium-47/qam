@@ -234,7 +234,7 @@ class QAMAgent(flax.struct.PyTreeNode):
         network.params[f'modules_target_{module_name}'] = new_target_params
 
     @staticmethod
-    def _update(agent, batch):
+    def _update(agent, batch, online=False):
         new_rng, rng = jax.random.split(agent.rng)
 
         def loss_fn(grad_params):
@@ -246,13 +246,13 @@ class QAMAgent(flax.struct.PyTreeNode):
 
         return agent.replace(network=new_network, rng=new_rng), info
 
-    @jax.jit
-    def update(self, batch):
-        return self._update(self, batch)
-    
-    @jax.jit
-    def batch_update(self, batch):
-        agent, infos = jax.lax.scan(self._update, self, batch)
+    @partial(jax.jit, static_argnames="online")
+    def update(self, batch, online=False):
+        return self._update(self, batch, online=online)
+
+    @partial(jax.jit, static_argnames="online")
+    def batch_update(self, batch, online=False):
+        agent, infos = jax.lax.scan(partial(self._update, online=online), self, batch)
         return agent, jax.tree_util.tree_map(lambda x: x.mean(), infos)
 
     @jax.jit
